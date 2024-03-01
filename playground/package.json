@@ -8,6 +8,7 @@
   },
   "dependencies": {
     "nuxt": "workspace:*",
-    "vue": "latest"
+    "vue": "latest",
+    "@nuxt/ui": "latest"
   }
 }
