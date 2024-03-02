@@ -7,9 +7,7 @@ export default defineEventHandler(async (event) => {
     server: boolean;
   };
 
-  const path = `C:/uni/serbest/nuxt-app/${
-    server ? "server" : "client"
-  }posts.txt`;
+  const path = `playground/${server ? "server" : "client"}posts.txt`;
 
   if (existsSync(path)) {
     await appendFile(path, `\n${post}`);
