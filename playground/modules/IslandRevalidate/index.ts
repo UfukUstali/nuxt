@@ -1,4 +1,5 @@
 import {
+  addComponent,
   addImports,
   addServerPlugin,
   createResolver,
@@ -24,6 +25,12 @@ export default defineNuxtModule({
       from: resolver.resolve("./imports/$fetchWithRevalidate.ts"),
       name: "$fetchWithRevalidate",
     });
+
+    // addComponent({
+    //   name: "NuxtIsland",
+    //   filePath: resolver.resolve("./components/nuxt-island.ts"),
+    //   priority: 100,
+    // });
 
     addServerPlugin(resolver.resolve("./plugins/nitro.ts"));
   },
