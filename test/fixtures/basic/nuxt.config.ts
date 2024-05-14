@@ -11,6 +11,7 @@ declare module 'nitropack' {
 }
 
 export default defineNuxtConfig({
+  future: { compatibilityVersion: process.env.TEST_V4 === 'true' ? 4 : 3 },
   app: {
     pageTransition: true,
     layoutTransition: true,
@@ -31,6 +32,7 @@ export default defineNuxtConfig({
   },
   buildDir: process.env.NITRO_BUILD_DIR,
   builder: process.env.TEST_BUILDER as 'webpack' | 'vite' ?? 'vite',
+  buildId: 'nuxt-app-basic',
   build: {
     transpile: [
       (ctx) => {
@@ -225,6 +227,7 @@ export default defineNuxtConfig({
     treeshakeClientOnly: true,
     asyncContext: process.env.TEST_CONTEXT === 'async',
     appManifest: process.env.TEST_MANIFEST !== 'manifest-off',
+    renderJsonPayloads: process.env.TEST_PAYLOAD !== 'js',
     headNext: true,
     inlineRouteRules: true,
   },

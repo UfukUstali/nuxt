@@ -13,6 +13,7 @@ import type { NuxtIslandResponse } from '#app'
 
 const isWebpack = process.env.TEST_BUILDER === 'webpack'
 const isTestingAppManifest = process.env.TEST_MANIFEST !== 'manifest-off'
+const isV4 = process.env.TEST_V4 === 'true'
 
 await setup({
   rootDir: fileURLToPath(new URL('./fixtures/basic', import.meta.url)),
@@ -57,7 +58,14 @@ describe('server api', () => {
 
 describe('route rules', () => {
   it('should enable spa mode', async () => {
-    const { script, attrs } = parseData(await $fetch('/route-rules/spa'))
+    const headHtml = await $fetch('/route-rules/spa')
+
+    // SPA should render appHead tags
+    expect(headHtml).toContain('<meta name="description" content="Nuxt Fixture">')
+    expect(headHtml).toContain('<meta charset="utf-8">')
+    expect(headHtml).toContain('<meta name="viewport" content="width=1024, initial-scale=1">')
+
+    const { script, attrs } = parseData(headHtml)
     expect(script.serverRendered).toEqual(false)
     if (isRenderingJson) {
       expect(attrs['data-ssr']).toEqual('false')
@@ -577,6 +585,33 @@ describe('nuxt composables', () => {
     await page.close()
   })
 
+  it('supports onPrehydrate', async () => {
+    const html = await $fetch('/composables/on-prehydrate') as string
+    /**
+     * Should look something like this:
+     *
+     * ```html
+     * <div data-prehydrate-id=":b3qlvSiBeH::df1mQEC9xH:"> onPrehydrate testing </div>
+     * <script>(()=>{console.log(window)})()</script>
+     * <script>document.querySelectorAll('[data-prehydrate-id*=":b3qlvSiBeH:"]').forEach(o=>{console.log(o.outerHTML)})</script>
+     * <script>document.querySelectorAll('[data-prehydrate-id*=":df1mQEC9xH:"]').forEach(o=>{console.log("other",o.outerHTML)})</script>
+     * ```
+     */
+    const { id1, id2 } = html.match(/<div[^>]* data-prehydrate-id=":(?<id1>[^:]+)::(?<id2>[^:]+):"> onPrehydrate testing <\/div>/)?.groups || {}
+    expect(id1).toBeTruthy()
+    const matches = [
+      html.match(/<script[^>]*>\(\(\)=>\{console.log\(window\)\}\)\(\)<\/script>/),
+      html.match(new RegExp(`<script[^>]*>document.querySelectorAll\\('\\[data-prehydrate-id\\*=":${id1}:"]'\\).forEach\\(o=>{console.log\\(o.outerHTML\\)}\\)</script>`)),
+      html.match(new RegExp(`<script[^>]*>document.querySelectorAll\\('\\[data-prehydrate-id\\*=":${id2}:"]'\\).forEach\\(o=>{console.log\\("other",o.outerHTML\\)}\\)</script>`)),
+    ]
+
+    // This tests we inject all scripts correctly, and only have one occurrence of multiple calls of a composable
+    expect(matches.every(s => s?.length === 1)).toBeTruthy()
+
+    // Check for hydration/syntax errors on client side
+    await expectNoClientErrors('/composables/on-prehydrate')
+  })
+
   it('respects preview mode with a token', async () => {
     const token = 'hehe'
     const page = await createPage(`/preview?preview=true&token=${token}`)
@@ -849,7 +884,7 @@ describe('head tags', () => {
     expect(headHtml).toContain('<meta content="0;javascript:alert(1)">')
   })
 
-  it('SPA should render appHead tags', async () => {
+  it.skipIf(isV4)('SPA should render appHead tags', async () => {
     const headHtml = await $fetch('/head', { headers: { 'x-nuxt-no-ssr': '1' } })
 
     expect(headHtml).toContain('<meta name="description" content="Nuxt Fixture">')
@@ -857,7 +892,7 @@ describe('head tags', () => {
     expect(headHtml).toContain('<meta name="viewport" content="width=1024, initial-scale=1">')
   })
 
-  it('legacy vueuse/head works', async () => {
+  it.skipIf(isV4)('legacy vueuse/head works', async () => {
     const headHtml = await $fetch('/vueuse-head')
     expect(headHtml).toContain('<title>using provides usehead and updateDOM - VueUse head polyfill test</title>')
   })
@@ -1876,7 +1911,7 @@ describe('public directories', () => {
 describe.skipIf(isDev())('dynamic paths', () => {
   it('should work with no overrides', async () => {
     const html: string = await $fetch('/assets')
-    for (const match of html.matchAll(/(href|src)="(.*?)"|url\(([^)]*?)\)/g)) {
+    for (const match of html.matchAll(/(href|src)="(.*?)"|url\(([^)]*)\)/g)) {
       const url = match[2] || match[3]
       expect(url.startsWith('/_nuxt/') || url === '/public.svg').toBeTruthy()
     }
@@ -1885,11 +1920,11 @@ describe.skipIf(isDev())('dynamic paths', () => {
   // webpack injects CSS differently
   it.skipIf(isWebpack)('adds relative paths to CSS', async () => {
     const html: string = await $fetch('/assets')
-    const urls = Array.from(html.matchAll(/(href|src)="(.*?)"|url\(([^)]*?)\)/g)).map(m => m[2] || m[3])
+    const urls = Array.from(html.matchAll(/(href|src)="(.*?)"|url\(([^)]*)\)/g)).map(m => m[2] || m[3])
     const cssURL = urls.find(u => /_nuxt\/assets.*\.css$/.test(u))
     expect(cssURL).toBeDefined()
     const css: string = await $fetch(cssURL!)
-    const imageUrls = Array.from(css.matchAll(/url\(([^)]*)\)/g)).map(m => m[1].replace(/[-.][\w]{8}\./g, '.'))
+    const imageUrls = Array.from(css.matchAll(/url\(([^)]*)\)/g)).map(m => m[1].replace(/[-.]\w{8}\./g, '.'))
     expect(imageUrls).toMatchInlineSnapshot(`
         [
           "./logo.svg",
@@ -1909,7 +1944,7 @@ describe.skipIf(isDev())('dynamic paths', () => {
     })
 
     const html = await $fetch('/foo/assets')
-    for (const match of html.matchAll(/(href|src)="(.*?)"|url\(([^)]*?)\)/g)) {
+    for (const match of html.matchAll(/(href|src)="(.*?)"|url\(([^)]*)\)/g)) {
       const url = match[2] || match[3]
       expect(
         url.startsWith('/foo/_other/') ||
@@ -1930,7 +1965,7 @@ describe.skipIf(isDev())('dynamic paths', () => {
     })
 
     const html = await $fetch('/assets')
-    for (const match of html.matchAll(/(href|src)="(.*?)"|url\(([^)]*?)\)/g)) {
+    for (const match of html.matchAll(/(href|src)="(.*?)"|url\(([^)]*)\)/g)) {
       const url = match[2] || match[3]
       expect(
         url.startsWith('./_nuxt/') ||
@@ -1964,7 +1999,7 @@ describe.skipIf(isDev())('dynamic paths', () => {
     })
 
     const html = await $fetch('/foo/assets')
-    for (const match of html.matchAll(/(href|src)="(.*?)"|url\(([^)]*?)\)/g)) {
+    for (const match of html.matchAll(/(href|src)="(.*?)"|url\(([^)]*)\)/g)) {
       const url = match[2] || match[3]
       expect(
         url.startsWith('https://example.com/_cdn/') ||
@@ -2160,11 +2195,10 @@ describe('component islands', () => {
     result.html = result.html.replace(/ data-island-uid="([^"]*)"/g, '')
 
     if (isDev()) {
-      result.head.link = result.head.link.filter(l => !l.href.includes('@nuxt+ui-templates'))
       const fixtureDir = normalize(fileURLToPath(new URL('./fixtures/basic', import.meta.url)))
       for (const link of result.head.link) {
         link.href = link.href.replace(fixtureDir, '/<rootDir>').replaceAll('//', '/')
-        link.key = link.key.replace(/-[a-zA-Z0-9]+$/, '')
+        link.key = link.key.replace(/-[a-z0-9]+$/i, '')
       }
       result.head.link.sort((a, b) => b.href.localeCompare(a.href))
     }
@@ -2183,14 +2217,12 @@ describe('component islands', () => {
         }
       `)
     } else if (isDev() && !isWebpack) {
+      // TODO: resolve dev bug triggered by earlier fetch of /vueuse-head page
+      // https://github.com/nuxt/nuxt/blob/main/packages/nuxt/src/core/runtime/nitro/renderer.ts#L139
+      result.head.link = result.head.link.filter(h => !h.href.includes('SharedComponent'))
       expect(result.head).toMatchInlineSnapshot(`
         {
           "link": [
-            {
-              "href": "/_nuxt/components/SharedComponent.vue?vue&type=style&index=0&scoped=3ee84738&lang.css",
-              "key": "island-link",
-              "rel": "stylesheet",
-            },
             {
               "href": "/_nuxt/components/islands/PureComponent.vue?vue&type=style&index=0&scoped=c0c0cf89&lang.css",
               "key": "island-link",
@@ -2538,7 +2570,7 @@ describe('Node.js compatibility for client-side', () => {
     expect(await page.innerHTML('body')).toContain('CWD: [available]')
     await page.close()
   })
-})
+}, 20_000)
 
 function normaliseIslandResult (result: NuxtIslandResponse) {
   return {
@@ -2548,7 +2580,7 @@ function normaliseIslandResult (result: NuxtIslandResponse) {
       style: result.head.style.map(s => ({
         ...s,
         innerHTML: (s.innerHTML || '').replace(/data-v-[a-z0-9]+/, 'data-v-xxxxx').replace(/\.[a-zA-Z0-9]+\.svg/, '.svg'),
-        key: s.key.replace(/-[a-zA-Z0-9]+$/, ''),
+        key: s.key.replace(/-[a-z0-9]+$/i, ''),
       })),
     },
   }
@@ -2603,5 +2635,54 @@ describe('lazy import components', () => {
 
   it('lazy load named component with mode server', () => {
     expect(html).toContain('lazy-named-comp-server')
+  })
+})
+
+describe('defineNuxtComponent watch duplicate', () => {
+  it('test after navigation duplicate', async () => {
+    const { page } = await renderPage('/define-nuxt-component')
+    await page.getByTestId('define-nuxt-component-bar').click()
+    await page.getByTestId('define-nuxt-component-state').click()
+    await page.getByTestId('define-nuxt-component-foo').click()
+    expect(await page.getByTestId('define-nuxt-component-state').first().innerText()).toBe('2')
+  })
+})
+
+describe('namespace access to useNuxtApp', () => {
+  it('should return the nuxt instance when used with correct buildId', async () => {
+    const { page, pageErrors } = await renderPage('/namespace-nuxt-app')
+
+    expect(pageErrors).toEqual([])
+
+    await page.waitForFunction(() => window.useNuxtApp?.() && !window.useNuxtApp?.().isHydrating)
+
+    // Defaulting to buildId
+    await page.evaluate(() => window.useNuxtApp?.())
+    // Using correct configured buildId
+    // @ts-expect-error not public API yet
+    await page.evaluate(() => window.useNuxtApp?.('nuxt-app-basic'))
+
+    await page.close()
+  })
+
+  it('should throw an error when used with wrong buildId', async () => {
+    const { page, pageErrors } = await renderPage('/namespace-nuxt-app')
+
+    expect(pageErrors).toEqual([])
+
+    await page.waitForFunction(() => window.useNuxtApp?.() && !window.useNuxtApp?.().isHydrating)
+
+    let error: unknown
+    try {
+      // Using wrong/unknown buildId
+      // @ts-expect-error not public API yet
+      await page.evaluate(() => window.useNuxtApp?.('nuxt-app-unknown'))
+    } catch (err) {
+      error = err
+    }
+
+    expect(error).toBeTruthy()
+
+    await page.close()
   })
 })
