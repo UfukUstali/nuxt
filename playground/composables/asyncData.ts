@@ -37,9 +37,9 @@ const onNuxtReady = (callback: () => any) => {
   }
 }
 
-export type AsyncDataRequestStatus = 'idle' | 'pending' | 'success' | 'error'
+type AsyncDataRequestStatus = 'idle' | 'pending' | 'success' | 'error'
 
-export type _Transform<Input = any, Output = any> = (
+type _Transform<Input = any, Output = any> = (
   input: Input
 ) => Output | Promise<Output>
 
@@ -61,13 +61,9 @@ export type KeysOf<T> = Array<
     : never
 >
 
-export type KeyOfRes<Transform extends _Transform> = KeysOf<
-  ReturnType<Transform>
->
-
 export type MultiWatchSources = (WatchSource<unknown> | object)[]
 
-export type NoInfer<T> = [T][T extends any ? 0 : never]
+type NoInfer<T> = [T][T extends any ? 0 : never]
 
 export interface AsyncDataOptions<
   ResT,
@@ -125,7 +121,7 @@ export interface AsyncDataOptions<
   dedupe?: 'cancel' | 'defer'
 }
 
-export interface AsyncDataExecuteOptions {
+interface AsyncDataExecuteOptions {
   _initial?: boolean
   // TODO: remove boolean option in Nuxt 4
   /**
@@ -139,7 +135,7 @@ export interface AsyncDataExecuteOptions {
   dedupe?: boolean | 'cancel' | 'defer'
 }
 
-export interface _AsyncData<DataT, ErrorT> {
+interface _AsyncData<DataT, ErrorT> {
   data: Ref<DataT>
   /**
    * @deprecated Use `status` instead. This may be removed in a future major version.
@@ -196,7 +192,7 @@ const isDefer = (dedupe?: boolean | 'cancel' | 'defer') =>
  * @param handler An asynchronous function that must return a truthy value (for example, it should not be `undefined` or `null`) or the request may be duplicated on the client side.
  * @param options customize the behavior of useAsyncData
  */
-export function useAsyncData<
+export function useReactiveAsyncData<
   ResT,
   NuxtErrorDataT = unknown,
   DataT = ResT,
@@ -212,7 +208,7 @@ export function useAsyncData<
  * @param handler An asynchronous function that must return a truthy value (for example, it should not be `undefined` or `null`) or the request may be duplicated on the client side.
  * @param options customize the behavior of useAsyncData
  */
-export function useAsyncData<
+export function useReactiveAsyncData<
   ResT,
   NuxtErrorDataT = unknown,
   DataT = ResT,
@@ -229,7 +225,7 @@ export function useAsyncData<
  * @param handler An asynchronous function that must return a truthy value (for example, it should not be `undefined` or `null`) or the request may be duplicated on the client side.
  * @param options customize the behavior of useAsyncData
  */
-export function useAsyncData<
+export function useReactiveAsyncData<
   ResT,
   NuxtErrorDataT = unknown,
   DataT = ResT,
@@ -247,7 +243,7 @@ export function useAsyncData<
  * @param handler An asynchronous function that must return a truthy value (for example, it should not be `undefined` or `null`) or the request may be duplicated on the client side.
  * @param options customize the behavior of useAsyncData
  */
-export function useAsyncData<
+export function useReactiveAsyncData<
   ResT,
   NuxtErrorDataT = unknown,
   DataT = ResT,
@@ -258,7 +254,7 @@ export function useAsyncData<
   handler: (ctx?: NuxtApp) => Promise<ResT>,
   options?: AsyncDataOptions<ResT, DataT, PickKeys, DefaultT>
 ): AsyncData<PickFrom<DataT, PickKeys>, DefaultT, NuxtErrorDataT>
-export function useAsyncData<
+export function useReactiveAsyncData<
   ResT,
   NuxtErrorDataT = unknown,
   DataT = ResT,
@@ -519,7 +515,7 @@ export function useAsyncData<
   }) as AsyncData<PickFrom<DataT, PickKeys>, DefaultT, NuxtErrorDataT>
 }
 /** @since 3.0.0 */
-export function useLazyAsyncData<
+export function useReactiveLazyAsyncData<
   ResT,
   DataE = Error,
   DataT = ResT,
@@ -529,7 +525,7 @@ export function useLazyAsyncData<
   handler: (ctx?: NuxtApp) => Promise<ResT>,
   options?: Omit<AsyncDataOptions<ResT, DataT, PickKeys, DefaultT>, 'lazy'>
 ): AsyncData<PickFrom<DataT, PickKeys>, DefaultT, DataE>
-export function useLazyAsyncData<
+export function useReactiveLazyAsyncData<
   ResT,
   DataE = Error,
   DataT = ResT,
@@ -539,7 +535,7 @@ export function useLazyAsyncData<
   handler: (ctx?: NuxtApp) => Promise<ResT>,
   options?: Omit<AsyncDataOptions<ResT, DataT, PickKeys, DefaultT>, 'lazy'>
 ): AsyncData<PickFrom<DataT, PickKeys>, DefaultT, DataE>
-export function useLazyAsyncData<
+export function useReactiveLazyAsyncData<
   ResT,
   DataE = Error,
   DataT = ResT,
@@ -550,7 +546,7 @@ export function useLazyAsyncData<
   handler: (ctx?: NuxtApp) => Promise<ResT>,
   options?: Omit<AsyncDataOptions<ResT, DataT, PickKeys, DefaultT>, 'lazy'>
 ): AsyncData<PickFrom<DataT, PickKeys>, DefaultT, DataE>
-export function useLazyAsyncData<
+export function useReactiveLazyAsyncData<
   ResT,
   DataE = Error,
   DataT = ResT,
@@ -562,7 +558,7 @@ export function useLazyAsyncData<
   options?: Omit<AsyncDataOptions<ResT, DataT, PickKeys, DefaultT>, 'lazy'>
 ): AsyncData<PickFrom<DataT, PickKeys>, DefaultT, DataE>
 
-export function useLazyAsyncData<
+export function useReactiveLazyAsyncData<
   ResT,
   DataE = Error,
   DataT = ResT,
@@ -586,11 +582,11 @@ export function useLazyAsyncData<
   }
 
   // @ts-expect-error we pass an extra argument to prevent a key being injected
-  return useAsyncData(key, handler, { ...options, lazy: true }, null)
+  return useReactiveAsyncData(key, handler, { ...options, lazy: true }, null)
 }
 
 /** @since 3.1.0 */
-export function useNuxtData<DataT = any> (
+function useNuxtData<DataT = any> (
   key: string,
 ): { data: Ref<DataT | null> } {
   const nuxtApp = useNuxtApp()
@@ -617,7 +613,7 @@ export function useNuxtData<DataT = any> (
 }
 
 /** @since 3.0.0 */
-export async function refreshNuxtData (keys?: string | string[]): Promise<void> {
+async function refreshNuxtData (keys?: string | string[]): Promise<void> {
   if (import.meta.server) {
     return Promise.resolve()
   }
@@ -629,7 +625,7 @@ export async function refreshNuxtData (keys?: string | string[]): Promise<void> 
 }
 
 /** @since 3.0.0 */
-export function clearNuxtData (
+function clearNuxtData (
   keys?: string | string[] | ((key: string) => boolean),
 ): void {
   const nuxtApp = useNuxtApp()

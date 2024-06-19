@@ -7,7 +7,7 @@ export default defineEventHandler(async (event) => {
       `playground/${server ? 'server' : 'client'}posts.txt`,
       'utf-8',
     ).catch(() => '')
-  ).split('\n')
+  ).split('\n').map(post => post.trim())
   return {
     posts,
   }

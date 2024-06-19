@@ -50,19 +50,19 @@ function revalidate () {
   <div
     class="font-sans bg-black text-white flex h-screen w-screen items-center justify-center"
   >
-    <div
-      ref="server"
-      class="flex h-full w-1/2 flex-col items-center justify-center gap-4"
-    >
-      <ServerComp name="server" />
-      <input v-model="input" :disabled />
-      <button :disabled @click="revalidate()">Create Post</button>
-    </div>
-    <div class="flex h-full w-1/2 flex-col items-center justify-center gap-4">
-      <ClientComp v-bind="postProps" />
-      <input v-model="input" :disabled />
-      <button :disabled @click="revalidate()">Create Post</button>
-    </div>
+  <div class="flex h-full w-1/2 flex-col items-center justify-center gap-4">
+    <ClientComp v-bind="postProps" />
+    <input v-model="input" :disabled />
+    <button :disabled @click="revalidate()">Create Post</button>
+  </div>
+  <div
+    ref="server"
+    class="flex h-full w-1/2 flex-col items-center justify-center gap-4"
+  >
+    <ServerComp name="server" />
+    <input v-model="input" :disabled />
+    <button :disabled @click="revalidate()">Create Post</button>
+  </div>
   </div>
 </template>
 

@@ -4,37 +4,42 @@ const props = defineProps<{
   createPostFlag: boolean
 }>()
 
-watchEffect(async () => {
+watch(() => props.createPostFlag, async () => {
   if (props.createPostFlag) {
     await $fetch('/api/create-post', {
       method: 'POST',
       body: { post: props.newPost, server: false },
     })
-    await refresh()
+    await posts.refresh()
   }
 })
 
-const { data, error, refresh } = await useFetch('/api/all-posts', {
+const posts = useReactiveFetch('/api/all-posts', {
   query: { server: false },
 })
+// await posts.resolve()
+// uncomment the above line if you want to resolve the request onBeforeMount
+// just like const posts = await useFetch('/api/all-posts', { query: { server: false } })
 </script>
 
 <template>
-  <div class="flex flex-col items-center justify-center gap-2">
+  <div class="flex flex-col items-center justify-center gap-4">
     <h1 class="text-3xl font-bold tracking-tighter">
       Client Component
     </h1>
-    <div aria-hidden="true" />
-    <template v-if="data">
+    <template v-if="posts.status === 'success'">
       <p
-        v-for="post in data?.posts"
+        v-for="post in posts.data.posts"
         :key="post"
       >
         {{ post }}
       </p>
     </template>
-    <template v-if="error">
-      <p>{{ error.message }}</p>
+    <template v-if="posts.status === 'error'">
+      <p>{{ posts.error.message }}</p>
+    </template>
+    <template v-if="posts.status === 'pending'">
+      <p>Loading...</p>
     </template>
   </div>
 </template>

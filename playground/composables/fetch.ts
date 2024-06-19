@@ -16,7 +16,7 @@ import type {
   MultiWatchSources,
   PickFrom,
 } from './asyncData'
-import { useAsyncData } from './asyncData'
+import { useReactiveAsyncData } from './asyncData'
 
 // @ts-expect-error virtual file
 import { fetchDefaults } from '#build/nuxt.config.mjs'
@@ -26,7 +26,7 @@ type AvailableRouterMethod<R extends NitroFetchRequest> =
   | _AvailableRouterMethod<R>
   | Uppercase<_AvailableRouterMethod<R>>
 
-export type FetchResult<
+type FetchResult<
   ReqT extends NitroFetchRequest,
   M extends AvailableRouterMethod<ReqT>,
 > = TypedInternalResponse<ReqT, unknown, Lowercase<M>>
@@ -49,7 +49,7 @@ type ComputedFetchOptions<
   M extends AvailableRouterMethod<R>,
 > = ComputedOptions<NitroFetchOptions<R, M>>
 
-export interface UseFetchOptions<
+interface UseFetchOptions<
   ResT,
   DataT = ResT,
   PickKeys extends KeysOf<DataT> = KeysOf<DataT>,
@@ -70,7 +70,7 @@ export interface UseFetchOptions<
  * @param request The URL to fetch
  * @param opts extends $fetch options and useAsyncData options
  */
-export function useFetch<
+export function useReactiveFetch<
   ResT = void,
   ErrorT = FetchError,
   ReqT extends NitroFetchRequest = NitroFetchRequest,
@@ -93,7 +93,7 @@ export function useFetch<
  * @param request The URL to fetch
  * @param opts extends $fetch options and useAsyncData options
  */
-export function useFetch<
+export function useReactiveFetch<
   ResT = void,
   ErrorT = FetchError,
   ReqT extends NitroFetchRequest = NitroFetchRequest,
@@ -110,7 +110,7 @@ export function useFetch<
   request: Ref<ReqT> | ReqT | (() => ReqT),
   opts?: UseFetchOptions<_ResT, DataT, PickKeys, DefaultT, ReqT, Method>
 ): AsyncData<PickFrom<DataT, PickKeys>, DefaultT, ErrorT>
-export function useFetch<
+export function useReactiveFetch<
   ResT = void,
   ErrorT = FetchError,
   ReqT extends NitroFetchRequest = NitroFetchRequest,
@@ -203,7 +203,7 @@ export function useFetch<
 
   let controller: AbortController
 
-  const asyncData = useAsyncData<_ResT, ErrorT, DataT, PickKeys, DefaultT>(
+  const asyncData = useReactiveAsyncData<_ResT, ErrorT, DataT, PickKeys, DefaultT>(
     key,
     () => {
       controller?.abort?.()
@@ -248,7 +248,7 @@ export function useFetch<
 }
 
 /** @since 3.0.0 */
-export function useLazyFetch<
+export function useReactiveLazyFetch<
   ResT = void,
   ErrorT = FetchError,
   ReqT extends NitroFetchRequest = NitroFetchRequest,
@@ -268,7 +268,7 @@ export function useLazyFetch<
     'lazy'
   >
 ): AsyncData<PickFrom<DataT, PickKeys>, DefaultT, ErrorT>
-export function useLazyFetch<
+export function useReactiveLazyFetch<
   ResT = void,
   ErrorT = FetchError,
   ReqT extends NitroFetchRequest = NitroFetchRequest,
@@ -288,7 +288,7 @@ export function useLazyFetch<
     'lazy'
   >
 ): AsyncData<PickFrom<DataT, PickKeys>, DefaultT, ErrorT>
-export function useLazyFetch<
+export function useReactiveLazyFetch<
   ResT = void,
   ErrorT = FetchError,
   ReqT extends NitroFetchRequest = NitroFetchRequest,
@@ -319,7 +319,7 @@ export function useLazyFetch<
     opts._functionName ||= 'useLazyFetch'
   }
 
-  return useFetch<ResT, ErrorT, ReqT, Method, _ResT, DataT, PickKeys, DefaultT>(
+  return useReactiveFetch<ResT, ErrorT, ReqT, Method, _ResT, DataT, PickKeys, DefaultT>(
     request,
     {
       ...opts,
