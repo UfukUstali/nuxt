@@ -1,4 +1,4 @@
-import { effectScope, getCurrentInstance, getCurrentScope, hasInjectionContext, reactive } from 'vue'
+import { effectScope, getCurrentInstance, getCurrentScope, hasInjectionContext, reactive, shallowReactive } from 'vue'
 import type { App, EffectScope, Ref, VNode, onErrorCaptured } from 'vue'
 import type { RouteLocationNormalizedLoaded } from '#vue-router'
 import type { HookCallback, Hookable } from 'hookable'
@@ -20,13 +20,15 @@ import type { LoadingIndicator } from '../app/composables/loading-indicator'
 import type { RouteAnnouncer } from '../app/composables/route-announcer'
 import type { ViewTransition } from './plugins/view-transitions.client'
 
+// @ts-expect-error virtual file
+import { appId } from '#build/nuxt.config.mjs'
+
+// TODO: temporary module for backwards compatibility
+import type { DefaultAsyncDataErrorValue, DefaultErrorValue } from '#app/defaults'
 import type { NuxtAppLiterals } from '#app'
 
-// @ts-expect-error virtual import
-import { buildId } from '#build/nuxt.config.mjs'
-
-function getNuxtAppCtx (appName?: string) {
-  return getContext<NuxtApp>(appName || buildId || 'nuxt-app', {
+function getNuxtAppCtx (appName = appId || 'nuxt-app') {
+  return getContext<NuxtApp>(appName, {
     asyncContext: !!__NUXT_ASYNC_CONTEXT__ && import.meta.server,
   })
 }
@@ -67,7 +69,7 @@ export interface NuxtSSRContext extends SSRContext {
   /** whether we are rendering an SSR error */
   error?: boolean
   nuxt: _NuxtApp
-  payload: NuxtPayload
+  payload: Partial<NuxtPayload>
   head: VueHeadClient<MergeHead>
   /** This is used solely to render runtime config with SPA renderer. */
   config?: Pick<RuntimeConfig, 'public' | 'app'>
@@ -92,8 +94,8 @@ export interface NuxtPayload {
   state: Record<string, any>
   once: Set<string>
   config?: Pick<RuntimeConfig, 'public' | 'app'>
-  error?: NuxtError | null
-  _errors: Record<string, NuxtError | null>
+  error?: NuxtError | DefaultErrorValue
+  _errors: Record<string, NuxtError | DefaultAsyncDataErrorValue>
   [key: string]: unknown
 }
 
@@ -120,10 +122,12 @@ interface _NuxtApp {
   _asyncDataPromises: Record<string, Promise<any> | undefined>
   /** @internal */
   _asyncData: Record<string, {
-    data: Ref<any>
+    data: Ref<unknown>
     pending: Ref<boolean>
-    error: Ref<Error | null>
+    error: Ref<Error | DefaultAsyncDataErrorValue>
     status: Ref<AsyncDataRequestStatus>
+    /** @internal */
+    _default: () => unknown
   } | undefined>
 
   /** @internal */
@@ -244,7 +248,7 @@ export interface CreateOptions {
 export function createNuxtApp (options: CreateOptions) {
   let hydratingCount = 0
   const nuxtApp: NuxtApp = {
-    name: buildId,
+    _name: appId || 'nuxt-app',
     _scope: effectScope(),
     provide: undefined,
     globalName: 'nuxt',
@@ -252,12 +256,11 @@ export function createNuxtApp (options: CreateOptions) {
       get nuxt () { return __NUXT_VERSION__ },
       get vue () { return nuxtApp.vueApp.version },
     },
-    payload: reactive({
-      data: {},
-      state: {},
+    payload: shallowReactive({
+      data: shallowReactive({}),
+      state: reactive({}),
       once: new Set<string>(),
-      _errors: {},
-      ...(import.meta.client ? window.__NUXT__ ?? {} : { serverRendered: true }),
+      _errors: shallowReactive({}),
     }),
     static: {
       data: {},
@@ -288,10 +291,31 @@ export function createNuxtApp (options: CreateOptions) {
       }
     },
     _asyncDataPromises: {},
-    _asyncData: {},
+    _asyncData: shallowReactive({}),
     _payloadRevivers: {},
     ...options,
   } as any as NuxtApp
+
+  if (import.meta.server) {
+    nuxtApp.payload.serverRendered = true
+  }
+
+  // TODO: remove/refactor in https://github.com/nuxt/nuxt/issues/25336
+  if (import.meta.client && window.__NUXT__) {
+    for (const key in window.__NUXT__) {
+      switch (key) {
+        case 'data':
+        case 'state':
+        case '_errors':
+          // Preserve reactivity for non-rich payload support
+          Object.assign(nuxtApp.payload[key], window.__NUXT__[key])
+          break
+
+        default:
+          nuxtApp.payload[key] = window.__NUXT__[key]
+      }
+    }
+  }
 
   nuxtApp.hooks = createHooks<RuntimeNuxtHooks>()
   nuxtApp.hook = nuxtApp.hooks.hook
@@ -358,16 +382,20 @@ export function createNuxtApp (options: CreateOptions) {
 
   // Expose runtime config
   const runtimeConfig = import.meta.server ? options.ssrContext!.runtimeConfig : nuxtApp.payload.config!
-  nuxtApp.provide('config', runtimeConfig)
+  nuxtApp.provide('config', import.meta.client && import.meta.dev ? wrappedConfig(runtimeConfig) : runtimeConfig)
 
   return nuxtApp
 }
 
-/** @since 3.0.0 */
-export async function applyPlugin (nuxtApp: NuxtApp, plugin: Plugin & ObjectPlugin<any>) {
+/** @since 3.12.0 */
+export function registerPluginHooks (nuxtApp: NuxtApp, plugin: Plugin & ObjectPlugin<any>) {
   if (plugin.hooks) {
     nuxtApp.hooks.addHooks(plugin.hooks)
   }
+}
+
+/** @since 3.0.0 */
+export async function applyPlugin (nuxtApp: NuxtApp, plugin: Plugin & ObjectPlugin<any>) {
   if (typeof plugin === 'function') {
     const { provide } = await nuxtApp.runWithContext(() => plugin(nuxtApp)) || {}
     if (provide && typeof provide === 'object') {
@@ -412,6 +440,11 @@ export async function applyPlugins (nuxtApp: NuxtApp, plugins: Array<Plugin & Ob
         await promise
       }
     }
+  }
+
+  for (const plugin of plugins) {
+    if (import.meta.server && nuxtApp.ssrContext?.islandContext && plugin.env?.islands === false) { continue }
+    registerPluginHooks(nuxtApp, plugin)
   }
 
   for (const plugin of plugins) {
@@ -520,4 +553,25 @@ function defineGetter<K extends string | number | symbol, V> (obj: Record<K, V>,
 /** @since 3.0.0 */
 export function defineAppConfig<C extends AppConfigInput> (config: C): C {
   return config
+}
+
+/**
+ * Configure error getter on runtime secret property access that doesn't exist on the client side
+ */
+const loggedKeys = new Set<string>()
+function wrappedConfig (runtimeConfig: Record<string, unknown>) {
+  if (!import.meta.dev || import.meta.server) { return runtimeConfig }
+  const keys = Object.keys(runtimeConfig).map(key => `\`${key}\``)
+  const lastKey = keys.pop()
+  return new Proxy(runtimeConfig, {
+    get (target, p, receiver) {
+      if (typeof p === 'string' && p !== 'public' && !(p in target) && !p.startsWith('__v') /* vue check for reactivity, e.g. `__v_isRef` */) {
+        if (!loggedKeys.has(p)) {
+          loggedKeys.add(p)
+          console.warn(`[nuxt] Could not access \`${p}\`. The only available runtime config keys on the client side are ${keys.join(', ')} and ${lastKey}. See https://nuxt.com/docs/guide/going-further/runtime-config for more information.`)
+        }
+      }
+      return Reflect.get(target, p, receiver)
+    },
+  })
 }

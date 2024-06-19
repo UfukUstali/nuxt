@@ -7,7 +7,7 @@ import escapeRE from 'escape-string-regexp'
 import { hash } from 'ohash'
 import { camelCase } from 'scule'
 import { filename } from 'pathe/utils'
-import type { NuxtTemplate } from 'nuxt/schema'
+import type { NuxtTemplate, NuxtTypeTemplate } from 'nuxt/schema'
 
 import { annotatePlugins, checkForCircularDependencies } from './app'
 
@@ -96,6 +96,20 @@ export const serverPluginTemplate: NuxtTemplate = {
   },
 }
 
+export const appDefaults: NuxtTypeTemplate = {
+  filename: 'types/app-defaults.d.ts',
+  getContents: (ctx) => {
+    const isV4 = ctx.nuxt.options.future.compatibilityVersion === 4
+    return `
+declare module '#app/defaults' {
+  type DefaultAsyncDataErrorValue = ${isV4 ? 'undefined' : 'null'}
+  type DefaultAsyncDataValue = ${isV4 ? 'undefined' : 'null'}
+  type DefaultErrorValue = ${isV4 ? 'undefined' : 'null'}
+  type DedupeOption = ${isV4 ? '\'cancel\' | \'defer\'' : 'boolean | \'cancel\' | \'defer\''}
+}`
+  },
+}
+
 export const pluginsDeclaration: NuxtTemplate = {
   filename: 'types/plugins.d.ts',
   getContents: async (ctx) => {
@@ -150,21 +164,29 @@ export const schemaTemplate: NuxtTemplate = {
 
     const relativeRoot = relative(resolve(nuxt.options.buildDir, 'types'), nuxt.options.rootDir)
     const getImportName = (name: string) => (name[0] === '.' ? './' + join(relativeRoot, name) : name).replace(/\.\w+$/, '')
-    const modules = moduleInfo.map(meta => [genString(meta.configKey), getImportName(meta.importName)])
+    const modules = moduleInfo.map(meta => [genString(meta.configKey), getImportName(meta.importName), meta])
     const privateRuntimeConfig = Object.create(null)
     for (const key in nuxt.options.runtimeConfig) {
       if (key !== 'public') {
         privateRuntimeConfig[key] = nuxt.options.runtimeConfig[key]
       }
     }
-    return [
-      'import { NuxtModule, RuntimeConfig } from \'nuxt/schema\'',
-      'declare module \'nuxt/schema\' {',
-      '  interface NuxtConfig {',
+    const moduleOptionsInterface = [
       ...modules.map(([configKey, importName]) =>
         `    [${configKey}]?: typeof ${genDynamicImport(importName, { wrapper: false })}.default extends NuxtModule<infer O> ? Partial<O> : Record<string, any>`,
       ),
-      modules.length > 0 ? `    modules?: (undefined | null | false | NuxtModule | string | [NuxtModule | string, Record<string, any>] | ${modules.map(([configKey, importName]) => `[${genString(importName)}, Exclude<NuxtConfig[${configKey}], boolean>]`).join(' | ')})[],` : '',
+      modules.length > 0 ? `  modules?: (undefined | null | false | NuxtModule | string | [NuxtModule | string, Record<string, any>] | ${modules.map(([configKey, importName, meta]) => `[${genString(meta?.rawPath || importName)}, Exclude<NuxtConfig[${configKey}], boolean>]`).join(' | ')})[],` : '',
+    ]
+    return [
+      'import { NuxtModule, RuntimeConfig } from \'@nuxt/schema\'',
+      'declare module \'@nuxt/schema\' {',
+      '  interface NuxtConfig {',
+      moduleOptionsInterface,
+      '  }',
+      '}',
+      'declare module \'nuxt/schema\' {',
+      '  interface NuxtConfig {',
+      moduleOptionsInterface,
       '  }',
       generateTypes(await resolveSchema(privateRuntimeConfig as Record<string, JSValue>),
         {
@@ -266,10 +288,13 @@ export const useRuntimeConfig = () => window?.__NUXT__?.config || {}
 export const appConfigDeclarationTemplate: NuxtTemplate = {
   filename: 'types/app.config.d.ts',
   getContents ({ app, nuxt }) {
+    const typesDir = join(nuxt.options.buildDir, 'types')
+    const configPaths = app.configs.map(path => relative(typesDir, path).replace(/\b\.\w+$/g, ''))
+
     return `
 import type { CustomAppConfig } from 'nuxt/schema'
 import type { Defu } from 'defu'
-${app.configs.map((id: string, index: number) => `import ${`cfg${index}`} from ${JSON.stringify(id.replace(/\b\.\w+$/g, ''))}`).join('\n')}
+${configPaths.map((id: string, index: number) => `import ${`cfg${index}`} from ${JSON.stringify(id)}`).join('\n')}
 
 declare const inlineConfig = ${JSON.stringify(nuxt.options.appConfig, null, 2)}
 type ResolvedAppConfig = Defu<typeof inlineConfig, [${app.configs.map((_id: string, index: number) => `typeof cfg${index}`).join(', ')}]>
@@ -393,11 +418,44 @@ export const nuxtConfigTemplate: NuxtTemplate = {
       `export const devRootDir = ${ctx.nuxt.options.dev ? JSON.stringify(ctx.nuxt.options.rootDir) : 'null'}`,
       `export const devLogs = ${JSON.stringify(ctx.nuxt.options.features.devLogs)}`,
       `export const nuxtLinkDefaults = ${JSON.stringify(ctx.nuxt.options.experimental.defaults.nuxtLink)}`,
-      `export const asyncDataDefaults = ${JSON.stringify(ctx.nuxt.options.experimental.defaults.useAsyncData)}`,
+      `export const asyncDataDefaults = ${JSON.stringify({
+        ...ctx.nuxt.options.experimental.defaults.useAsyncData,
+        value: ctx.nuxt.options.experimental.defaults.useAsyncData.value === 'null' ? null : undefined,
+        errorValue: ctx.nuxt.options.experimental.defaults.useAsyncData.errorValue === 'null' ? null : undefined,
+      })}`,
+      `export const resetAsyncDataToUndefined = ${ctx.nuxt.options.experimental.resetAsyncDataToUndefined}`,
+      `export const nuxtDefaultErrorValue = ${ctx.nuxt.options.future.compatibilityVersion === 4 ? 'undefined' : 'null'}`,
       `export const fetchDefaults = ${JSON.stringify(fetchDefaults)}`,
-      `export const vueAppRootContainer = ${ctx.nuxt.options.app.rootId ? `'#${ctx.nuxt.options.app.rootId}'` : `'body > ${ctx.nuxt.options.app.rootTag}'`}`,
+      `export const vueAppRootContainer = ${ctx.nuxt.options.app.rootAttrs.id ? `'#${ctx.nuxt.options.app.rootAttrs.id}'` : `'body > ${ctx.nuxt.options.app.rootTag}'`}`,
       `export const viewTransition = ${ctx.nuxt.options.experimental.viewTransition}`,
-      `export const buildId = ${JSON.stringify(ctx.nuxt.options.buildId)}`,
+      `export const appId = ${JSON.stringify(ctx.nuxt.options.appId)}`,
+      `export const outdatedBuildInterval = ${ctx.nuxt.options.experimental.checkOutdatedBuildInterval}`,
     ].join('\n\n')
+  },
+}
+
+const TYPE_FILENAME_RE = /\.([cm])?[jt]s$/
+const DECLARATION_RE = /\.d\.[cm]?ts$/
+export const buildTypeTemplate: NuxtTemplate = {
+  filename: 'types/build.d.ts',
+  getContents ({ app }) {
+    let declarations = ''
+
+    for (const file of app.templates) {
+      if (file.write || !file.filename || DECLARATION_RE.test(file.filename)) {
+        continue
+      }
+
+      if (TYPE_FILENAME_RE.test(file.filename)) {
+        const typeFilenames = new Set([file.filename.replace(TYPE_FILENAME_RE, '.d.$1ts'), file.filename.replace(TYPE_FILENAME_RE, '.d.ts')])
+        if (app.templates.some(f => f.filename && typeFilenames.has(f.filename))) {
+          continue
+        }
+      }
+
+      declarations += 'declare module ' + JSON.stringify(join('#build', file.filename)) + ';\n'
+    }
+
+    return declarations
   },
 }

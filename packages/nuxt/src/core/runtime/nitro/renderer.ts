@@ -21,7 +21,7 @@ import type { HeadEntryOptions } from '@unhead/schema'
 import type { Link, Script, Style } from '@unhead/vue'
 import { createServerHead } from '@unhead/vue'
 
-import { defineRenderHandler, getRouteRules, useAppConfig, useRuntimeConfig, useStorage } from '#internal/nitro'
+import { defineRenderHandler, getRouteRules, useRuntimeConfig, useStorage } from '#internal/nitro'
 import { useNitroApp } from '#internal/nitro/app'
 
 // @ts-expect-error virtual file
@@ -165,11 +165,7 @@ const getSPARenderer = lazyCachedFunction(async () => {
     const config = useRuntimeConfig(ssrContext.event)
     ssrContext.modules = ssrContext.modules || new Set<string>()
     ssrContext!.payload = {
-      _errors: {},
       serverRendered: false,
-      data: {},
-      state: {},
-      once: new Set<string>(),
     }
     ssrContext.config = {
       public: config.public,
@@ -327,7 +323,7 @@ export default defineRenderHandler(async (event): Promise<Partial<RenderResponse
 
   // Whether we are prerendering route
   const _PAYLOAD_EXTRACTION = import.meta.prerender && process.env.NUXT_PAYLOAD_EXTRACTION && !ssrContext.noSSR && !isRenderingIsland
-  const payloadURL = _PAYLOAD_EXTRACTION ? joinURL(ssrContext.runtimeConfig.app.baseURL, url, process.env.NUXT_JSON_PAYLOADS ? '_payload.json' : '_payload.js') + '?' + (useAppConfig().nuxt as any)?.buildId : undefined
+  const payloadURL = _PAYLOAD_EXTRACTION ? joinURL(ssrContext.runtimeConfig.app.cdnURL || ssrContext.runtimeConfig.app.baseURL, url, process.env.NUXT_JSON_PAYLOADS ? '_payload.json' : '_payload.js') + '?' + ssrContext.runtimeConfig.app.buildId : undefined
   if (import.meta.prerender) {
     ssrContext.payload.prerenderedAt = Date.now()
   }
@@ -404,7 +400,7 @@ export default defineRenderHandler(async (event): Promise<Partial<RenderResponse
   // 2. Styles
   head.push({ style: inlinedStyles })
   if (!isRenderingIsland || import.meta.dev) {
-    const link = []
+    const link: Link[] = []
     for (const style in styles) {
       const resource = styles[style]
       // Do not add links to resources that are inlined (vite v5+)
@@ -455,6 +451,9 @@ export default defineRenderHandler(async (event): Promise<Partial<RenderResponse
         type: resource.module ? 'module' : null,
         src: renderer.rendererContext.buildAssetsURL(resource.file),
         defer: resource.module ? null : true,
+        // if we are rendering script tag payloads that import an async payload
+        // we need to ensure this resolves before executing the Nuxt entry
+        tagPosition: (_PAYLOAD_EXTRACTION && !process.env.NUXT_JSON_PAYLOADS) ? 'bodyClose' : 'head',
         crossorigin: '',
       })),
     }, headEntryOptions)
@@ -699,7 +698,7 @@ function replaceIslandTeleports (ssrContext: NuxtSSRContext, html: string) {
     if (matchClientComp) {
       const [, uid, clientId] = matchClientComp
       if (!uid || !clientId) { continue }
-      html = html.replace(new RegExp(` data-island-component="${clientId}"[^>]*>`), (full) => {
+      html = html.replace(new RegExp(` data-island-uid="${uid}" data-island-component="${clientId}"[^>]*>`), (full) => {
         return full + teleports[key]
       })
       continue

@@ -4,15 +4,17 @@ import ignore from 'ignore'
 import type { LoadNuxtOptions } from '@nuxt/kit'
 import { addBuildPlugin, addComponent, addPlugin, addRouteMiddleware, addServerPlugin, addVitePlugin, addWebpackPlugin, installModule, loadNuxtConfig, logger, nuxtCtx, resolveAlias, resolveFiles, resolveIgnorePatterns, resolvePath, tryResolveModule, useNitro } from '@nuxt/kit'
 import { resolvePath as _resolvePath } from 'mlly'
-import type { Nuxt, NuxtHooks, NuxtOptions, RuntimeConfig } from 'nuxt/schema'
+import type { Nuxt, NuxtHooks, NuxtModule, NuxtOptions } from 'nuxt/schema'
 import type { PackageJson } from 'pkg-types'
 import { readPackageJSON, resolvePackageJSON } from 'pkg-types'
+import { hash } from 'ohash'
 
 import escapeRE from 'escape-string-regexp'
 import fse from 'fs-extra'
 import { withTrailingSlash, withoutLeadingSlash } from 'ufo'
 
 import defu from 'defu'
+import { gt, satisfies } from 'semver'
 import pagesModule from '../pages/module'
 import metaModule from '../head/module'
 import componentsModule from '../components/module'
@@ -47,10 +49,12 @@ export function createNuxt (options: NuxtOptions): Nuxt {
     addHooks: hooks.addHooks,
     hook: hooks.hook,
     ready: () => initNuxt(nuxt),
-    close: () => Promise.resolve(hooks.callHook('close', nuxt)),
+    close: () => hooks.callHook('close', nuxt),
     vfs: {},
     apps: {},
   }
+
+  hooks.hookOnce('close', () => { hooks.removeAllHooks() })
 
   return nuxt
 }
@@ -62,6 +66,11 @@ const nightlies = {
   '@nuxt/schema': '@nuxt/schema-nightly',
   '@nuxt/kit': '@nuxt/kit-nightly',
 }
+
+const keyDependencies = [
+  '@nuxt/kit',
+  '@nuxt/schema',
+]
 
 async function initNuxt (nuxt: Nuxt) {
   // Register user hooks
@@ -118,11 +127,14 @@ async function initNuxt (nuxt: Nuxt) {
   // Add nuxt types
   nuxt.hook('prepare:types', (opts) => {
     opts.references.push({ types: 'nuxt' })
+    opts.references.push({ path: resolve(nuxt.options.buildDir, 'types/app-defaults.d.ts') })
     opts.references.push({ path: resolve(nuxt.options.buildDir, 'types/plugins.d.ts') })
     // Add vue shim
     if (nuxt.options.typescript.shim) {
       opts.references.push({ path: resolve(nuxt.options.buildDir, 'types/vue-shim.d.ts') })
     }
+    // Add shims for `#build/*` imports that do not already have matching types
+    opts.references.push({ path: resolve(nuxt.options.buildDir, 'types/build.d.ts') })
     // Add module augmentations directly to NuxtConfig
     opts.references.push({ path: resolve(nuxt.options.buildDir, 'types/schema.d.ts') })
     opts.references.push({ path: resolve(nuxt.options.buildDir, 'types/app.config.d.ts') })
@@ -155,6 +167,7 @@ async function initNuxt (nuxt: Nuxt) {
     // Exclude top-level resolutions by plugins
     exclude: [join(nuxt.options.srcDir, 'index.html')],
     patterns: nuxtImportProtections(nuxt),
+    modulesDir: nuxt.options.modulesDir,
   }
   addVitePlugin(() => ImportProtectionPlugin.vite(config))
   addWebpackPlugin(() => ImportProtectionPlugin.webpack(config))
@@ -264,9 +277,12 @@ async function initNuxt (nuxt: Nuxt) {
     ...nuxt.options._layers.filter(i => i.cwd.includes('node_modules')).map(i => i.cwd as string),
   )
 
+  // Ensure we can resolve dependencies within layers
+  nuxt.options.modulesDir.push(...nuxt.options._layers.map(l => resolve(l.cwd, 'node_modules')))
+
   // Init user modules
   await nuxt.callHook('modules:before')
-  const modulesToInstall = []
+  const modulesToInstall = new Map<string | NuxtModule, Record<string, any>>()
 
   const watchedPaths = new Set<string>()
   const specifiedModules = new Set<string>()
@@ -289,12 +305,21 @@ async function initNuxt (nuxt: Nuxt) {
       watchedPaths.add(mod)
       if (specifiedModules.has(mod)) { continue }
       specifiedModules.add(mod)
-      modulesToInstall.push(mod)
+      modulesToInstall.set(mod, {})
     }
   }
 
   // Register user and then ad-hoc modules
-  modulesToInstall.push(...nuxt.options.modules, ...nuxt.options._modules)
+  for (const key of ['modules', '_modules'] as const) {
+    for (const item of nuxt.options[key as 'modules']) {
+      if (item) {
+        const [key, options = {}] = Array.isArray(item) ? item : [item]
+        if (!modulesToInstall.has(key)) {
+          modulesToInstall.set(key, options)
+        }
+      }
+    }
+  }
 
   // Add <NuxtWelcome>
   addComponent({
@@ -470,12 +495,8 @@ async function initNuxt (nuxt: Nuxt) {
     addPlugin(resolve(nuxt.options.appDir, 'plugins/debug'))
   }
 
-  for (const m of modulesToInstall) {
-    if (Array.isArray(m)) {
-      await installModule(m[0], m[1])
-    } else {
-      await installModule(m, {})
-    }
+  for (const [key, options] of modulesToInstall) {
+    await installModule(key, options)
   }
 
   // (Re)initialise ignore handler with resolved ignores from modules
@@ -491,7 +512,9 @@ async function initNuxt (nuxt: Nuxt) {
       global: true,
     })
 
-    addPlugin(resolve(nuxt.options.appDir, 'plugins/check-outdated-build.client'))
+    if (nuxt.options.experimental.checkOutdatedBuildInterval !== false) {
+      addPlugin(resolve(nuxt.options.appDir, 'plugins/check-outdated-build.client'))
+    }
   }
 
   nuxt.hooks.hook('builder:watch', (event, relativePath) => {
@@ -551,6 +574,12 @@ async function initNuxt (nuxt: Nuxt) {
     addPlugin(resolve(nuxt.options.appDir, 'plugins/payload.client'))
   }
 
+  // Show compatibility version banner when Nuxt is running with a compatibility version
+  // that is different from the current major version
+  if (!(satisfies(nuxt._version, nuxt.options.future.compatibilityVersion + '.x'))) {
+    console.info(`Running with compatibility version \`${nuxt.options.future.compatibilityVersion}\``)
+  }
+
   await nuxt.callHook('ready', nuxt)
 }
 
@@ -560,6 +589,11 @@ export async function loadNuxt (opts: LoadNuxtOptions): Promise<Nuxt> {
   // Temporary until finding better placement for each
   options.appDir = options.alias['#app'] = resolve(distDir, 'app')
   options._majorVersion = 3
+
+  // De-duplicate key arrays
+  for (const key in options.app.head || {}) {
+    options.app.head[key as 'link'] = deduplicateArray(options.app.head[key as 'link'])
+  }
 
   // Nuxt DevTools only works for Vite
   if (options.builder === '@nuxt/vite-builder') {
@@ -611,10 +645,28 @@ export async function loadNuxt (opts: LoadNuxtOptions): Promise<Nuxt> {
     options._modules.push('@nuxt/telemetry')
   }
 
-  // Ensure we share runtime config between Nuxt and Nitro
-  options.runtimeConfig = options.nitro.runtimeConfig as RuntimeConfig
+  // Ensure we share key config between Nuxt and Nitro
+  createPortalProperties(options.nitro.runtimeConfig, options, ['nitro.runtimeConfig', 'runtimeConfig'])
+  createPortalProperties(options.nitro.routeRules, options, ['nitro.routeRules', 'routeRules'])
+
+  // prevent replacement of options.nitro
+  const nitroOptions = options.nitro
+  Object.defineProperties(options, {
+    nitro: {
+      configurable: false,
+      enumerable: true,
+      get: () => nitroOptions,
+      set (value) {
+        Object.assign(nitroOptions, value)
+      },
+    },
+  })
 
   const nuxt = createNuxt(options)
+
+  for (const dep of keyDependencies) {
+    checkDependencyVersion(dep, nuxt._version)
+  }
 
   // We register hooks layer-by-layer so any overrides need to be registered separately
   if (opts.overrides?.hooks) {
@@ -632,4 +684,58 @@ export async function loadNuxt (opts: LoadNuxtOptions): Promise<Nuxt> {
   return nuxt
 }
 
+async function checkDependencyVersion (name: string, nuxtVersion: string): Promise<void> {
+  const path = await resolvePath(name).catch(() => null)
+
+  if (!path) { return }
+  const { version } = await readPackageJSON(path)
+
+  if (version && gt(nuxtVersion, version)) {
+    console.warn(`[nuxt] Expected \`${name}\` to be at least \`${nuxtVersion}\` but got \`${version}\`. This might lead to unexpected behavior. Check your package.json or refresh your lockfile.`)
+  }
+}
+
 const RESTART_RE = /^(?:app|error|app\.config)\.(?:js|ts|mjs|jsx|tsx|vue)$/i
+
+function deduplicateArray<T = unknown> (maybeArray: T): T {
+  if (!Array.isArray(maybeArray)) { return maybeArray }
+
+  const fresh: any[] = []
+  const hashes = new Set<string>()
+  for (const item of maybeArray) {
+    const _hash = hash(item)
+    if (!hashes.has(_hash)) {
+      hashes.add(_hash)
+      fresh.push(item)
+    }
+  }
+  return fresh as T
+}
+
+function createPortalProperties (sourceValue: any, options: NuxtOptions, paths: string[]) {
+  let sharedValue = sourceValue
+
+  for (const path of paths) {
+    const segments = path.split('.')
+    const key = segments.pop()!
+    let parent: Record<string, any> = options
+
+    while (segments.length) {
+      const key = segments.shift()!
+      parent = parent[key] || (parent[key] = {})
+    }
+
+    delete parent[key]
+
+    Object.defineProperties(parent, {
+      [key]: {
+        configurable: false,
+        enumerable: true,
+        get: () => sharedValue,
+        set (value) {
+          sharedValue = value
+        },
+      },
+    })
+  }
+}

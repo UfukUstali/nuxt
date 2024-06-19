@@ -102,12 +102,6 @@ export interface ViteConfig extends Omit<ViteUserConfig, 'publicDir'> {
   vueJsx?: VueJsxPluginOptions
 
   /**
-   * Bundler for dev time server-side rendering.
-   * @default 'vite-node'
-   */
-  devBundler?: 'vite-node' | 'legacy'
-
-  /**
    * Warmup vite entrypoint caches on dev startup.
    */
   warmupEntry?: boolean
@@ -141,12 +135,14 @@ export interface AppConfigInput extends CustomAppConfig {
   server?: never
 }
 
+type Serializable<T> = T extends Function ? never : T extends Promise<infer U> ? Serializable<U> : T extends string & {} ? T : T extends Record<string, any> ? { [K in keyof T]: Serializable<T[K]> } : T
+
 export interface NuxtAppConfig {
-  head: AppHeadMetaObject
-  layoutTransition: boolean | TransitionProps
-  pageTransition: boolean | TransitionProps
+  head: Serializable<AppHeadMetaObject>
+  layoutTransition: boolean | Serializable<TransitionProps>
+  pageTransition: boolean | Serializable<TransitionProps>
   viewTransition?: boolean | 'always'
-  keepalive: boolean | KeepAliveProps
+  keepalive: boolean | Serializable<KeepAliveProps>
 }
 
 export interface AppConfig {

@@ -1,4 +1,5 @@
 import { existsSync } from 'node:fs'
+import { readdir } from 'node:fs/promises'
 import { defineUntypedSchema } from 'untyped'
 import { join, relative, resolve } from 'pathe'
 import { isDebug, isDevelopment, isTest } from 'std-env'
@@ -19,6 +20,18 @@ export default defineUntypedSchema({
    * @type {string | [string, typeof import('c12').SourceOptions?] | (string | [string, typeof import('c12').SourceOptions?])[]}
    */
   extends: null,
+
+  /**
+   * Specify a compatibility date for your app.
+   *
+   * This is used to control the behavior of presets in Nitro, Nuxt Image
+   * and other modules that may change behavior without a major version bump.
+   *
+   * We plan to improve the tooling around this feature in the future.
+   *
+   * @type {typeof import('compatx').CompatibilityDateSpec}
+   */
+  compatibilityDate: undefined,
 
   /**
    * Extend project from a local or remote source.
@@ -105,7 +118,16 @@ export default defineUntypedSchema({
       }
 
       const srcDir = resolve(rootDir, 'app')
-      if (!existsSync(srcDir)) {
+      const srcDirFiles = new Set<string>()
+      if (existsSync(srcDir)) {
+        const files = await readdir(srcDir).catch(() => [])
+        for (const file of files) {
+          if (file !== 'spa-loading-template.html' && !file.startsWith('router.options')) {
+            srcDirFiles.add(file)
+          }
+        }
+      }
+      if (srcDirFiles.size === 0) {
         for (const file of ['app.vue', 'App.vue']) {
           if (existsSync(resolve(rootDir, file))) {
             return rootDir
@@ -155,10 +177,22 @@ export default defineUntypedSchema({
   },
 
   /**
+   * For multi-app projects, the unique name of the Nuxt application.
+   */
+  appId: {
+    $resolve: (val: string) => val ?? 'nuxt-app',
+  },
+
+  /**
    * A unique identifier matching the build. This may contain the hash of the current state of the project.
    */
   buildId: {
-    $resolve: (val: string) => val ?? randomUUID(),
+    $resolve: async (val: string | undefined, get): Promise<string> => {
+      if (typeof val === 'string') { return val }
+
+      const [isDev, isTest] = await Promise.all([get('dev') as Promise<boolean>, get('test') as Promise<boolean>])
+      return isDev ? 'dev' : isTest ? 'test' : randomUUID()
+    },
   },
 
   /**
@@ -528,11 +562,12 @@ export default defineUntypedSchema({
    */
   runtimeConfig: {
     $resolve: async (val: RuntimeConfig, get): Promise<Record<string, unknown>> => {
-      const app = await get('app') as Record<string, string>
+      const [app, buildId] = await Promise.all([get('app') as Promise<Record<string, string>>, get('buildId') as Promise<string>])
       provideFallbackValues(val)
       return defu(val, {
         public: {},
         app: {
+          buildId,
           baseURL: app.baseURL,
           buildAssetsDir: app.buildAssetsDir,
           cdnURL: app.cdnURL,

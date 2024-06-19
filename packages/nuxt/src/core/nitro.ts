@@ -43,7 +43,7 @@ export async function initNitro (nuxt: Nuxt & { _nitro?: Nitro }) {
   const modules = await resolveNuxtModule(rootDirWithSlash,
     nuxt.options._installedModules
       .filter(m => m.entryPath)
-      .map(m => m.entryPath),
+      .map(m => m.entryPath!),
   )
 
   const nitroConfig: NitroConfig = defu(nuxt.options.nitro, {
@@ -161,6 +161,8 @@ export async function initNitro (nuxt: Nuxt & { _nitro?: Nitro }) {
         'nuxt3/dist',
         'nuxt-nightly/dist',
         distDir,
+        // Ensure app config files have auto-imports injected even if they are pure .js files
+        ...nuxt.options._layers.map(layer => resolve(layer.config.srcDir, 'app.config')),
       ],
       traceInclude: [
         // force include files used in generated code from the runtime-compiler
@@ -218,9 +220,7 @@ export async function initNitro (nuxt: Nuxt & { _nitro?: Nitro }) {
 
   // Add app manifest handler and prerender configuration
   if (nuxt.options.experimental.appManifest) {
-    // @ts-expect-error untyped nuxt property
-    const buildId = nuxt.options.appConfig.nuxt!.buildId ||=
-      (nuxt.options.dev ? 'dev' : nuxt.options.test ? 'test' : nuxt.options.buildId)
+    const buildId = nuxt.options.runtimeConfig.app.buildId ||= nuxt.options.buildId
     const buildTimestamp = Date.now()
 
     const manifestPrefix = joinURL(nuxt.options.app.buildAssetsDir, 'builds')
@@ -355,6 +355,7 @@ export async function initNitro (nuxt: Nuxt & { _nitro?: Nitro }) {
   nitroConfig.rollupConfig!.plugins!.push(
     ImportProtectionPlugin.rollup({
       rootDir: nuxt.options.rootDir,
+      modulesDir: nuxt.options.modulesDir,
       patterns: nuxtImportProtections(nuxt, { isNitro: true }),
       exclude: [/core[\\/]runtime[\\/]nitro[\\/]renderer/],
     }),
@@ -388,7 +389,10 @@ export async function initNitro (nuxt: Nuxt & { _nitro?: Nitro }) {
   }
 
   // Init nitro
-  const nitro = await createNitro(nitroConfig)
+  const nitro = await createNitro(nitroConfig, {
+    // @ts-expect-error this will be valid in a future version of Nitro
+    compatibilityDate: nuxt.options.compatibilityDate,
+  })
 
   // Trigger Nitro reload when SPA loading template changes
   const spaLoadingTemplateFilePath = await spaLoadingTemplatePath(nuxt)
@@ -494,7 +498,11 @@ export async function initNitro (nuxt: Nuxt & { _nitro?: Nitro }) {
       for (const route of ['/200.html', '/404.html']) {
         routes.add(route)
       }
-      if (!nuxt.options.ssr) {
+      if (nuxt.options.ssr) {
+        if (nitro.options.prerender.crawlLinks) {
+          routes.add('/')
+        }
+      } else {
         routes.add('/index.html')
       }
     })

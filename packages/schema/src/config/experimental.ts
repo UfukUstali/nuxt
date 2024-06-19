@@ -26,9 +26,8 @@ export default defineUntypedSchema({
      *     app: 'app'
      *   },
      *   experimental: {
-     *     compileTemplate: true,
-     *     templateUtils: true,
      *     relativeWatchPaths: true,
+     *     resetAsyncDataToUndefined: true,
      *     defaults: {
      *       useAsyncData: {
      *         deep: true
@@ -45,6 +44,11 @@ export default defineUntypedSchema({
      * @type {3 | 4}
      */
     compatibilityVersion: 3,
+    /**
+     * This enables early access to the experimental multi-app support.
+     * @see [Nuxt Issue #21635](https://github.com/nuxt/nuxt/issues/21635)
+     */
+    multiApp: false,
     /**
      * This enables 'Bundler' module resolution mode for TypeScript, which is the recommended setting
      * for frameworks like Nuxt and Vite.
@@ -314,6 +318,14 @@ export default defineUntypedSchema({
     appManifest: true,
 
     /**
+     * Set the time interval (in ms) to check for new builds. Disabled when `experimental.appManifest` is `false`.
+     *
+     * Set to `false` to disable.
+     * @type {number | false}
+     */
+    checkOutdatedBuildInterval: 1000 * 60 * 60,
+
+    /**
      * Set an alternative watcher that will be used as the watching service for Nuxt.
      *
      * Nuxt uses 'chokidar-granular' by default, which will ignore top-level directories
@@ -337,8 +349,10 @@ export default defineUntypedSchema({
 
     /**
      * Use new experimental head optimisations:
+     *
      * - Add the capo.js head plugin in order to render tags in of the head in a more performant way.
      * - Uses the hash hydration plugin to reduce initial hydration
+     *
      * @see [Nuxt Discussion #22632](https://github.com/nuxt/nuxt/discussions/22632]
      */
     headNext: true,
@@ -362,7 +376,7 @@ export default defineUntypedSchema({
      *
      * https://github.com/nuxt/nuxt/issues/24770
      */
-    scanPageMeta: false,
+    scanPageMeta: true,
 
     /**
      * Automatically share payload _data_ between pages that are prerendered. This can result in a significant
@@ -387,7 +401,11 @@ export default defineUntypedSchema({
      * })
      * ```
      */
-    sharedPrerenderData: false,
+    sharedPrerenderData: {
+      async $resolve (val, get) {
+        return val ?? ((await get('future') as Record<string, unknown>).compatibilityVersion === 4)
+      },
+    },
 
     /**
      * Enables CookieStore support to listen for cookie updates (if supported by the browser) and refresh `useCookie` ref values.
@@ -410,6 +428,18 @@ export default defineUntypedSchema({
        * Options that apply to `useAsyncData` (and also therefore `useFetch`)
        */
       useAsyncData: {
+        /** @type {'undefined' | 'null'} */
+        value: {
+          async $resolve (val, get) {
+            return val ?? ((await get('future') as Record<string, unknown>).compatibilityVersion === 4 ? 'undefined' : 'null')
+          },
+        },
+        /** @type {'undefined' | 'null'} */
+        errorValue: {
+          async $resolve (val, get) {
+            return val ?? ((await get('future') as Record<string, unknown>).compatibilityVersion === 4 ? 'undefined' : 'null')
+          },
+        },
         deep: {
           async $resolve (val, get) {
             return val ?? !((await get('future') as Record<string, unknown>).compatibilityVersion === 4)
@@ -436,37 +466,22 @@ export default defineUntypedSchema({
     clientNodeCompat: false,
 
     /**
-     * Whether to use `lodash.template` to compile Nuxt templates.
-     *
-     * This flag will be removed with the release of v4 and exists only for
-     * advance testing within Nuxt v3.12+ or in [the nightly release channel](/docs/guide/going-further/nightly-release-channel).
-     */
-    compileTemplate: {
-      async $resolve (val, get) {
-        return val ?? ((await get('future') as Record<string, unknown>).compatibilityVersion !== 4)
-      },
-    },
-
-    /**
-     * Whether to provide a legacy `templateUtils` object (with `serialize`,
-     * `importName` and `importSources`) when compiling Nuxt templates.
-     *
-     * This flag will be removed with the release of v4 and exists only for
-     * advance testing within Nuxt v3.12+ or in [the nightly release channel](/docs/guide/going-further/nightly-release-channel).
-     */
-    templateUtils: {
-      async $resolve (val, get) {
-        return val ?? ((await get('future') as Record<string, unknown>).compatibilityVersion !== 4)
-      },
-    },
-
-    /**
      * Whether to provide relative paths in the `builder:watch` hook.
      *
      * This flag will be removed with the release of v4 and exists only for
      * advance testing within Nuxt v3.12+ or in [the nightly release channel](/docs/guide/going-further/nightly-release-channel).
      */
     relativeWatchPaths: {
+      async $resolve (val, get) {
+        return val ?? ((await get('future') as Record<string, unknown>).compatibilityVersion !== 4)
+      },
+    },
+
+    /**
+     * Whether `clear` and `clearNuxtData` should reset async data to its _default_ value or update
+     * it to `null`/`undefined`.
+     */
+    resetAsyncDataToUndefined: {
       async $resolve (val, get) {
         return val ?? ((await get('future') as Record<string, unknown>).compatibilityVersion !== 4)
       },

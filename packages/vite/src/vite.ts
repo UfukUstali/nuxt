@@ -4,6 +4,7 @@ import { dirname, join, normalize, resolve } from 'pathe'
 import type { Nuxt, NuxtBuilder, ViteConfig } from '@nuxt/schema'
 import { addVitePlugin, isIgnored, logger, resolvePath } from '@nuxt/kit'
 import replace from '@rollup/plugin-replace'
+import type { RollupReplaceOptions } from '@rollup/plugin-replace'
 import { sanitizeFilePath } from 'mlly'
 import { withoutLeadingSlash } from 'ufo'
 import { filename } from 'pathe/utils'
@@ -28,8 +29,7 @@ export interface ViteBuildContext {
 }
 
 export const bundle: NuxtBuilder['bundle'] = async (nuxt) => {
-  const useAsyncEntry = nuxt.options.experimental.asyncEntry ||
-    (nuxt.options.vite.devBundler === 'vite-node' && nuxt.options.dev)
+  const useAsyncEntry = nuxt.options.experimental.asyncEntry || nuxt.options.dev
   const entry = await resolvePath(resolve(nuxt.options.appDir, useAsyncEntry ? 'entry.async' : 'entry'))
 
   let allowDirs = [
@@ -71,10 +71,6 @@ export const bundle: NuxtBuilder['bundle'] = async (nuxt) => {
             'abort-controller': 'unenv/runtime/mock/empty',
           },
         },
-        optimizeDeps: {
-          include: ['vue'],
-          exclude: ['nuxt/app'],
-        },
         css: resolveCSSOptions(nuxt),
         define: {
           __NUXT_VERSION__: JSON.stringify(nuxt._version),
@@ -100,16 +96,13 @@ export const bundle: NuxtBuilder['bundle'] = async (nuxt) => {
         },
         plugins: [
           // add resolver for files in public assets directories
-          VitePublicDirsPlugin.vite(),
+          VitePublicDirsPlugin.vite({ sourcemap: !!nuxt.options.sourcemap.server }),
           composableKeysPlugin.vite({
             sourcemap: !!nuxt.options.sourcemap.server || !!nuxt.options.sourcemap.client,
             rootDir: nuxt.options.rootDir,
             composables: nuxt.options.optimization.keyedComposables,
           }),
-          replace({
-            ...Object.fromEntries([';', '(', '{', '}', ' ', '\t', '\n'].map(d => [`${d}global.`, `${d}globalThis.`])),
-            preventAssignment: true,
-          }),
+          replace({ preventAssignment: true, ...globalThisReplacements }),
           virtual(nuxt.vfs),
         ],
         server: {
@@ -168,10 +161,16 @@ export const bundle: NuxtBuilder['bundle'] = async (nuxt) => {
   await nuxt.callHook('vite:extend', ctx)
 
   nuxt.hook('vite:extendConfig', (config) => {
-    config.plugins!.push(replace({
-      preventAssignment: true,
-      ...Object.fromEntries(Object.entries(config.define!).filter(([key]) => key.startsWith('import.meta.'))),
-    }))
+    const replaceOptions: RollupReplaceOptions = Object.create(null)
+    replaceOptions.preventAssignment = true
+
+    for (const key in config.define!) {
+      if (key.startsWith('import.meta.')) {
+        replaceOptions[key] = config.define![key]
+      }
+    }
+
+    config.plugins!.push(replace(replaceOptions))
   })
 
   if (!ctx.nuxt.options.dev) {
@@ -228,3 +227,5 @@ export const bundle: NuxtBuilder['bundle'] = async (nuxt) => {
   await buildClient(ctx)
   await buildServer(ctx)
 }
+
+const globalThisReplacements = Object.fromEntries([';', '(', '{', '}', ' ', '\t', '\n'].map(d => [`${d}global.`, `${d}globalThis.`]))
