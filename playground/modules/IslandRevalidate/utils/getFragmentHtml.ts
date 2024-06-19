@@ -1,4 +1,4 @@
-import type { RendererNode } from "vue";
+import type { RendererNode } from 'vue'
 
 /**
  * Retrieve the HTML content from an element
@@ -7,53 +7,53 @@ import type { RendererNode } from "vue";
  * @param withoutSlots purge all slots from the HTML string retrieved
  * @returns {string[]} An array of string which represent the content of each element. Use `.join('')` to retrieve a component vnode.el HTML
  */
-export function getFragmentHTML(
+export function getFragmentHTML (
   element: RendererNode | null,
-  withoutSlots = false
+  withoutSlots = false,
 ): string[] | null {
   if (element) {
-    if (element.nodeName === "#comment" && element.nodeValue === "[") {
-      return getFragmentChildren(element, [], withoutSlots);
+    if (element.nodeName === '#comment' && element.nodeValue === '[') {
+      return getFragmentChildren(element, [], withoutSlots)
     }
     if (withoutSlots) {
-      const clone = element.cloneNode(true);
-      clone.querySelectorAll("[data-island-slot]").forEach((n: Element) => {
-        n.innerHTML = "";
-      });
-      return [clone.outerHTML];
+      const clone = element.cloneNode(true)
+      clone.querySelectorAll('[data-island-slot]').forEach((n: Element) => {
+        n.innerHTML = ''
+      })
+      return [clone.outerHTML]
     }
-    return [element.outerHTML];
+    return [element.outerHTML]
   }
-  return null;
+  return null
 }
 
-function getFragmentChildren(
+function getFragmentChildren (
   element: RendererNode | null,
   blocks: string[] = [],
-  withoutSlots = false
+  withoutSlots = false,
 ) {
   if (element && element.nodeName) {
     if (isEndFragment(element)) {
-      return blocks;
+      return blocks
     } else if (!isStartFragment(element)) {
-      const clone = element.cloneNode(true) as Element;
+      const clone = element.cloneNode(true) as Element
       if (withoutSlots) {
-        clone.querySelectorAll("[data-island-slot]").forEach((n) => {
-          n.innerHTML = "";
-        });
+        clone.querySelectorAll('[data-island-slot]').forEach((n) => {
+          n.innerHTML = ''
+        })
       }
-      blocks.push(clone.outerHTML);
+      blocks.push(clone.outerHTML)
     }
 
-    getFragmentChildren(element.nextSibling, blocks, withoutSlots);
+    getFragmentChildren(element.nextSibling, blocks, withoutSlots)
   }
-  return blocks;
+  return blocks
 }
 
-function isStartFragment(element: RendererNode) {
-  return element.nodeName === "#comment" && element.nodeValue === "[";
+function isStartFragment (element: RendererNode) {
+  return element.nodeName === '#comment' && element.nodeValue === '['
 }
 
-function isEndFragment(element: RendererNode) {
-  return element.nodeName === "#comment" && element.nodeValue === "]";
+function isEndFragment (element: RendererNode) {
+  return element.nodeName === '#comment' && element.nodeValue === ']'
 }

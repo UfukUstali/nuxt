@@ -1,42 +1,42 @@
 <!-- eslint-disable no-console -->
 <script lang="ts" setup>
-const input = ref("");
+const input = ref('')
 
-let id: string | null | undefined;
+let id: string | null | undefined
 
 const postProps = ref({
-  newPost: "",
+  newPost: '',
   createPostFlag: false,
-});
+})
 
-const server = ref<HTMLElement>();
+const server = ref<HTMLElement>()
 
 onMounted(async () => {
-  await nextTick();
+  await nextTick()
   id = server.value?.children
-    .namedItem("server")
-    ?.getAttribute("data-island-uid");
-});
+    .namedItem('server')
+    ?.getAttribute('data-island-uid')
+})
 
-const disabled = ref(false);
+const disabled = ref(false)
 
-function revalidate() {
-  if (input.value === "") return;
-  disabled.value = true;
+function revalidate () {
+  if (input.value === '') { return }
+  disabled.value = true
   postProps.value = {
     newPost: input.value,
     createPostFlag: true,
-  };
-  $fetchWithRevalidate("/api/create-post", {
-    method: "POST",
+  }
+  $fetchWithRevalidate('/api/create-post', {
+    method: 'POST',
     body: {
       post: input.value,
       server: true,
     },
     revalidate: id,
-  });
-  input.value = "";
-  disabled.value = false;
+  })
+  input.value = ''
+  disabled.value = false
 }
 </script>
 
